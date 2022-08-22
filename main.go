@@ -6,20 +6,9 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/woodgear/etcd-dumper/pkg/encoding"
 	"gopkg.in/yaml.v2"
-	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/runtime"
-	clientsetscheme "k8s.io/client-go/kubernetes/scheme"
-	agi "k8s.io/kube-aggregator/pkg/apis/apiregistration/install"
 )
-
-var Scheme = clientsetscheme.Scheme
-var Codecs = clientsetscheme.Codecs
-var ParameterCodec = clientsetscheme.ParameterCodec
-
-func init() {
-	agi.Install(Scheme)
-}
 
 type Etcd struct {
 	Header `json:"header"`
@@ -40,8 +29,8 @@ type KV struct {
 	CreateRevision uint   `json:"create_revision"`
 	ModRevision    uint   `json:"mod_revision"`
 	Version        uint   `json:"version"`
-	RawValue       string `json:"value"`
-	Value          runtime.Object
+	RawValue       string `json:"value" yaml:"-"`
+	Value          encoding.Value
 }
 
 func FromRawJsonByte(raw []byte) (*Etcd, error) {
@@ -66,8 +55,8 @@ func (e *Etcd) ToYaml() (string, error) {
 		return "", err
 	}
 	return string(yamlData), nil
-
 }
+
 func (e *Etcd) decode() error {
 	for i := range e.Kvs {
 		entry := e.Kvs[i]
@@ -86,23 +75,12 @@ func (e *Etcd) decode() error {
 			return err
 		}
 		v_bytes = v_bytes[:size]
-
-		object, _, err := Codecs.UniversalDeserializer().Decode(v_bytes, nil, nil)
+		v, err := encoding.DecodeValue(v_bytes)
 		if err != nil {
-			msg := fmt.Sprintf("decode value to object fail err: %v", err)
-			fmt.Print(msg)
-			return fmt.Errorf("decode value to object fail err: %v", err)
-		}
-		// ignore managedfields
-		{
-			a, err := meta.Accessor(object)
-			if err == nil {
-				// The object is not a `metav1.Object`, ignore it.
-				a.SetManagedFields(nil)
-			}
+			return err
 		}
 		entry.Key = string(k_str)
-		entry.Value = object
+		entry.Value = v
 	}
 	return nil
 }
